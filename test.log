@@ -1,0 +1,7 @@
+2024-12-30 10:30:07.394 [info] Starting linting the current package at /Users/alexander/Development/go/BananaBacon/internal/logs
+2024-12-30 10:30:07.446 [info] /Users/alexander/Development/go/BananaBacon/internal/logs>Finished running tool: /Users/alexander/go/bin/staticcheck
+2024-12-30 10:30:07.446 [info] 
+2024-12-30 10:30:10.538 [info] Running checks...
+2024-12-30 10:30:10.538 [info] Starting linting the current package at /Users/alexander/Development/go/BananaBacon/internal/logs
+2024-12-30 10:30:10.605 [info] /Users/alexander/Development/go/BananaBacon/internal/logs>Finished running tool: /Users/alexander/go/bin/staticcheck
+2024-12-30 10:30:10.605 [info] 
