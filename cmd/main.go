@@ -56,8 +56,12 @@ func main() {
 	var ctx context.Context
 	ctx, cancel := context.WithCancel(context.Background())
 
+	builder, err := bbmetrics.NewMetricsEngineBuilderFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Read metrics from env vars and expose them via http
-	engine := bbmetrics.NewMetricsEngineBuilderFromEnv().Build()
+	engine := builder.Build()
 	portStr := getenv("METRICS_PORT", "3333")
 	port, err := strconv.Atoi(portStr)
 	if err != nil {

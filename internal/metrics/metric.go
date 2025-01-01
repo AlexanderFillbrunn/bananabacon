@@ -28,6 +28,11 @@ type Metric struct {
 	description string
 }
 
+/*************  ✨ Codeium Command ⭐  *************/
+// NewMetric constructs a new Metric instance with the specified name, type,
+// script, labels, and description. It returns a pointer to the Metric struct
+// initialized with the provided values.
+/******  6ec234c6-f965-4bda-936d-b8e7d8a7c1d4  *******/
 func NewMetric(name string, typ int, script string, labels map[string]string, description string) *Metric {
 	return &Metric{
 		name: name,
@@ -38,14 +43,22 @@ func NewMetric(name string, typ int, script string, labels map[string]string, de
 	}
 }
 
+// Name returns the name of the metric.
 func (m *Metric) Name() string {
 	return m.name
 }
 
+// Type returns the type of the metric as an integer value. Valid values are
+// bbmetrics.UntypedType, bbmetrics.CounterType, bbmetrics.GaugeType,
+// bbmetrics.HistogramType, and bbmetrics.SummaryType.
 func (m *Metric) Type() int {
 	return m.typ
 }
 
+// Script returns the script that defines the metric. The script is a Go
+// expression that is executed in a context where the "t" variable is the
+// elapsed time since the metric was created. The script should return a
+// value of the appropriate type for the metric type.
 func (m *Metric) Script() string {
 	return m.script
 }
