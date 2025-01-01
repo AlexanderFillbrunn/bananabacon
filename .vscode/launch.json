@@ -6,7 +6,14 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/main.go"
+      "program": "${workspaceFolder}/cmd/main.go",
+      "env": {
+        "INPUT_FILE": "/Users/alexander/Development/go/BananaBacon/test.log",
+        "METRIC_TEST_EXPR": "t + 100",
+        "METRIC_TEST_TYPE": "gauge",
+        "METRIC_TEST_LABEL": "app=bananabacon",
+        "METRIC_TEST_DESCR": "This is a test metric"
+      }
     }
   ]
 }

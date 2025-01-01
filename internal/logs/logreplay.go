@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"regexp"
-	"sync"
 	"time"
 )
 
@@ -21,6 +20,18 @@ type LogReplayer struct {
 	inputFile string
 }
 
+// NewLogReplayer creates a new LogReplayer object with the given input file and
+// options. The options struct can be initialized with the following default
+// values:
+//
+// - FilterRegex: ".*" (match all lines)
+// - TimeRegex: "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}).*" (match lines with
+//   timestamps in the format 2006-01-02 15:04:05.000)
+// - TimeFormat: "2006-01-02 15:04:05.000" (the format of the timestamps extracted
+//   by TimeRegex)
+//
+// The returned LogReplayer object can be used to replay the log lines in the
+// input file using the Start method.
 func NewLogReplayer(inputFile string, options ReplayerOptions) *LogReplayer {
 	return &LogReplayer{
 		inputFile: inputFile,
@@ -28,6 +39,10 @@ func NewLogReplayer(inputFile string, options ReplayerOptions) *LogReplayer {
 	}
 }
 
+// Start replays the log lines in the input file according to the options given
+// to NewLogReplayer. It will stop when the context is cancelled or when the
+// end of the file is reached. The callback function is called on each log line
+// that matches the filter regex and has a valid timestamp.
 func (lr *LogReplayer) Start(ctx context.Context, callback func(string)) {
 	frx, err := regexp.Compile(lr.options.FilterRegex)
 	if err != nil {
@@ -47,22 +62,29 @@ func (lr *LogReplayer) Start(ctx context.Context, callback func(string)) {
 	lr.processFile(ctx, file, frx, trx, callback)
 }
 
+// processFile reads a file line by line, applies a filter regex to each line and
+// extracts a timestamp from each line that matches the filter regex. It then
+// schedules a timer that will emit the lines at a time that ensures that the
+// overall rate of the log replay is consistent with the timestamps in the
+// log. This means that if the log has a gap of 10 seconds between two log
+// lines, the timer will wait 10 seconds before emitting the second line.
+// The method returns when the context is cancelled or when the end of the
+// file is reached.
 func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx *regexp.Regexp,
 	callback func(string)) {
 	scanner := bufio.NewScanner(file)
 	var rst time.Time // real start time (now)
 	var lst time.Time // log start time (when the first line was logged)
-	var wg sync.WaitGroup
 	var ctime time.Time // time of the first line of the current batch
+	
+	// Channel for synchronization, used to wait for the timer to fire
+	notify := make(chan struct{})
+	defer close(notify)
+
 	buffer := []string{}
 
 	// TODO: optionally, resize scanner's capacity for lines over 64K
 	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
 		line := scanner.Text()
 		
 		// Check if the line matches the filter regex
@@ -73,7 +95,11 @@ func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx 
 		// Find the timestamp
 		t, ok := lr.extractTimestamp(line, trx)
 		if !ok {
-			continue
+			// If timestamp could not be extracted, use first time of current batch
+			if ctime.IsZero() {
+				continue
+			}
+			t = ctime
 		}
 
 		// Check we have a logging start time and if yes, if this is before it
@@ -93,9 +119,8 @@ func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx 
 				lst, rst = ctime, time.Now()
 				lr.emitLines(buffer, callback)
 			} else {
-				wg.Add(1)
-				lr.handleBufferedLines(buffer, &wg, ctime, lst, rst, callback)
-				wg.Wait()
+				timer, _ := lr.handleBufferedLines(buffer, notify, ctime, lst, rst, callback)
+				lr.wait(ctx, notify, timer)
 			}
 			// Reset buffer and current time
 			buffer = []string{}
@@ -105,9 +130,8 @@ func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx 
 	}
 	// Last lines, flush buffer
 	if len(buffer) > 0 {
-		wg.Add(1)
-		lr.handleBufferedLines(buffer, &wg, ctime, lst, rst, callback)
-		wg.Wait()
+		timer, _ := lr.handleBufferedLines(buffer, notify, ctime, lst, rst, callback)
+		lr.wait(ctx, notify, timer)
 	}
 
 	// Handle errors during scanning of file
@@ -116,12 +140,32 @@ func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx 
 	}
 }
 
+// wait pauses the execution until either the context is done or a notification
+// is received on the provided channel. It is used to synchronize the log replay
+// with the timing of the log entries, allowing for graceful cancellation using
+// the context. When the context is cancelled, the passed timer is stopped.
+func (lr *LogReplayer) wait(ctx context.Context, notify chan struct{}, timer *time.Timer) {
+	select {
+	case <-ctx.Done():
+		timer.Stop()
+		return
+	case <- notify:
+	}
+}
+
+// emitLines iterates over a slice of log lines and invokes the provided callback
+// function on each line. It is used to output or process each log line individually
+// after it has been buffered and is ready to be emitted.
 func (lr *LogReplayer) emitLines(lines []string, callback func(string)) {
 	for _, l := range lines {
 		callback(l)
 	}
 }
 
+// extractTimestamp extracts a timestamp from a log line using a given regular expression.
+// It returns the extracted timestamp as a time.Time object and a boolean indicating
+// whether the extraction was successful. If the timestamp cannot be extracted or parsed,
+// it returns a zero time and false.
 func (lr *LogReplayer) extractTimestamp(line string, trx *regexp.Regexp) (time.Time, bool) {
 	matches := trx.FindStringSubmatch(line)
 	if matches == nil || len(matches) < 2 {
@@ -135,12 +179,21 @@ func (lr *LogReplayer) extractTimestamp(line string, trx *regexp.Regexp) (time.T
 	return timestamp, true
 }
 
-func (lr *LogReplayer) handleBufferedLines(lines []string, wg *sync.WaitGroup,
-	t, lst, rst time.Time, callback func(string)) {
+// handleBufferedLines schedules a timer that will emit the given lines
+// at a time that ensures that the overall rate of the log replay is
+// consistent with the timestamps in the log. It returns a channel that
+// will send a single value when the timer fires. The channel is closed afterwards.
+func (lr *LogReplayer) handleBufferedLines(lines []string, notify chan struct{}, t, lst, rst time.Time,
+	callback func(string)) (*time.Timer, error) {
 	diff := t.Sub(lst)
 	ndiff := time.Since(rst)
-	time.AfterFunc(diff - ndiff, func() {
+	dur := diff - ndiff
+	if dur < 0 {
+		dur = time.Duration(0)
+	}
+	timer := time.AfterFunc(dur, func() {
 		lr.emitLines(lines, callback)
-		wg.Done()
+		notify <- struct{}{}
 	})
+	return timer, nil
 }
