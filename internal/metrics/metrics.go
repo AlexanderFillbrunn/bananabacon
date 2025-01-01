@@ -12,6 +12,9 @@ type MetricsEngine struct {
 	startTime time.Time
 }
 
+// NewMetricsEngine constructs a new MetricsEngine instance from the provided
+// metrics. The timestamp passed to each metric's Eval method will be the
+// elapsed time since the MetricsEngine was created.
 func NewMetricsEngine(metrics []*Metric) *MetricsEngine {
 	return &MetricsEngine{
 		Metrics: metrics,
@@ -20,6 +23,9 @@ func NewMetricsEngine(metrics []*Metric) *MetricsEngine {
 	}
 }
 
+// Reset sets the startTime of the MetricsEngine to the current time.
+// This effectively resets the time elapsed since the engine's creation
+// or the last reset, affecting timestamps passed to metric evaluations.
 func (me *MetricsEngine) Reset() {
 	me.startTime = time.Now()
 }

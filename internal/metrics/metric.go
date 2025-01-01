@@ -28,11 +28,9 @@ type Metric struct {
 	description string
 }
 
-/*************  ✨ Codeium Command ⭐  *************/
 // NewMetric constructs a new Metric instance with the specified name, type,
 // script, labels, and description. It returns a pointer to the Metric struct
 // initialized with the provided values.
-/******  6ec234c6-f965-4bda-936d-b8e7d8a7c1d4  *******/
 func NewMetric(name string, typ int, script string, labels map[string]string, description string) *Metric {
 	return &Metric{
 		name: name,
@@ -63,18 +61,27 @@ func (m *Metric) Script() string {
 	return m.script
 }
 
+// Labels returns the labels associated with the metric. The labels are a
+// map of key-value pairs representing dimensions of the metric.
 func (m *Metric) Labels() map[string]string {
 	return m.labels
 }
 
+// Description returns the description of the metric, providing additional
+// context or information about the metric. It is a string that can describe
+// the purpose, usage, or other relevant details of the metric.
 func (m *Metric) Description() string {
 	return m.description
 }
 
+// String returns the name of the metric as a string.
 func (m *Metric) String() string {
 	return m.Name()
 }
 
+// Eval evaluates the given metric and returns its result and any error that occurred.
+// The timestamp given to the metric is the time elapsed since instantiation or the
+// last call to Reset.
 func (m *Metric) Eval(vm *goja.Runtime, t time.Duration) (MetricValue, error) {
 	fnScript := m.Script()
 	if !strings.HasPrefix(m.Script(), "function") {
@@ -101,14 +108,21 @@ type MetricValue struct {
 	value any
 }
 
+
+// Value returns the value of the metric as an arbitrary Go type.
 func (mv MetricValue) Value() any {
 	return mv.value
 }
 
+
+// Metric returns the metric that this MetricValue is a value for.
 func (mv MetricValue) Metric() *Metric {
 	return mv.metric
 }
 
+// NewMetricValue returns a new MetricValue instance with the given metric and value.
+// The value argument can be any Go type, but it must be a type that can be serialized
+// to a string that can be used as a value in a Prometheus metric line.
 func NewMetricValue(metric *Metric, value any) MetricValue {
 	return MetricValue{
 		metric: metric,
@@ -116,6 +130,17 @@ func NewMetricValue(metric *Metric, value any) MetricValue {
 	}
 }
 
+// String returns a string representation of the MetricValue, in the format
+// expected by Prometheus. The format is as follows:
+//
+//   # HELP <metric_name> <metric_description>
+//   # TYPE <metric_name> <metric_type>
+//   <metric_name>{<label_name>="<label_value>",<label_name>="<label_value>",...} <value>
+//
+// If the metric has no description, the help part is omitted.
+//
+// The metric description and type are only included if the metric has a
+// description and type, respectively.
 func (mv MetricValue) String() string {
 	var sb strings.Builder
 
@@ -136,6 +161,9 @@ func (mv MetricValue) String() string {
 	return fmt.Sprintf("%s%s%s", helpLine, typeLine, valueLine)
 }
 
+// MetricTypeToString takes a metric type as an integer (as returned by
+// Metric.Type()) and returns a string representation of the type suitable for
+// use in a Prometheus metric definition.
 func MetricTypeToString(t int) string {
 	switch t {
 	case CounterType:
