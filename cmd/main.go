@@ -86,7 +86,7 @@ func createMetricsEngine() *metrics.MetricsEngine {
 }
 
 func getPort() int {
-	portStr := getenv("METRICS_PORT", "3333")
+	portStr := getenv("METRICS_PORT", "8080")
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		log.Fatalf("Invalid metrics port: %s, err: %s", portStr, err)

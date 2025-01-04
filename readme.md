@@ -16,11 +16,31 @@ two log lines in the original log, the lines will be output with a 10 seconds ga
 
 ## How do I use it?
 
-Control Bananabacon using the following environment variables:
+Control Bananabacon using the following general environment variables:
 
-- **INPUT_FILE**: The log file to replay.
-- **FILTER_REGEX**: The regex for filtering log lines. Defaults to `.*`.
-- **TIME_REGEX**: The regex for extracting the timestamp from a log line. Must have exactly one subgroup for the timestamp.
-- **TIME_FORMAT**: The format of the timestamp in the logs, defined in the [Go time format](https://www.geeksforgeeks.org/time-formatting-in-golang/).
-- **LOOP**: Whether to loop the log output after the file has been replayed.
-- **METRICS_PORT**: Port the metrics server listens on.
+| Variable         | Description                                                                                                                         | Default        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| **INPUT_FILE**   | The log file to replay.                                                                                                             | /logs/test.log |
+| **FILTER_REGEX** | The regex for filtering log lines.                                                                                                  | `.*`           |
+| **TIME_REGEX**   | The regex for extracting the timestamp from a log line. Must have exactly one subgroup for the timestamp.                           | (None)         |
+| **TIME_FORMAT**  | The format of the timestamp in the logs, defined in the [Go time format](https://www.geeksforgeeks.org/time-formatting-in-golang/). | (None)         |
+| **LOOP**         | Whether to loop the log output after the file has been replayed.                                                                    | `false`        |
+| **METRICS_PORT** | Port the metrics server listens on.                                                                                                 | 8080           |
+
+Add metrics to produce using the following environment variables (<name> stands for the exported metric name):
+
+| Variable                  | Description                                                                                                                                                                                                                                                                          | Default   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| **METRIC\_<name>\_EXPR**  | The expression generating the metric value. For counter this needs to return an int, for gauge any number. The variable `t` holds the passed milliseconds since the server was started. You can either provide a function: `function (t) { return t * 2 }` or an expression: `t * 2` | t         |
+| **METRIC\_<name>\_TYPE**  | The metric type (counter, gauge, histogram, summary, untyped). Note: currently only gauge and counter are supported.                                                                                                                                                                 | `counter` |
+| **METRIC\_<name>\_DESCR** | The description for the metric that will be printed in the HELP line                                                                                                                                                                                                                 | ""        |
+| **METRIC\_<name>\_LABEL** | The labels for the metric in the format `key1=value1,key2=value2,key3=value3`.                                                                                                                                                                                                       | (None)    |
+
+**Example:** Counter metric named `my_metric` sloping up and then becoming static.
+
+```
+METRIC_my_metric_EXPR = function(t) { if(t < 100000) return t / 1000; return 100; }
+METRIC_my_metric_TYPE = counter
+METRIC_my_metric_DESCR = Sloping up until 100, then staying there
+METRIC_my_metric_LABEL = my_app=app
+```

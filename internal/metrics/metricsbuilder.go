@@ -80,7 +80,7 @@ func isValidLabelName(labelName string) bool {
 // IsComplete returns true if the MetricBuilder is complete, i.e. it has a valid
 // name and script. Otherwise, it returns false.
 func (m *MetricBuilder) IsComplete() bool {
-	return len(m.Script) > 0 && len(m.Name) > 0
+	return len(m.Name) > 0
 }
 
 // Build constructs a Metric instance from the MetricBuilder if it is complete,
@@ -90,7 +90,11 @@ func (mb *MetricBuilder) Build() (*Metric, bool) {
 	if !mb.IsComplete() {
 		return nil, false
 	}
-	return NewMetric(mb.Name, mb.Type, mb.Script, mb.Labels, mb.Description), true
+	script := mb.Script
+	if len(script) == 0 {
+		script = "t"
+	}
+	return NewMetric(mb.Name, mb.Type, script, mb.Labels, mb.Description), true
 }
 
 const (
@@ -153,10 +157,13 @@ func (mb MetricsEngineBuilder) AddFromEnv(varName, value string) (MetricsEngineB
 		} else if strings.HasSuffix(varName, MetricDescrEnvNameSuffix) {
 			builder.WithDescription(value)
 		} else if strings.HasSuffix(varName, MetricLabelEnvNameSuffix) {
-			parts := strings.SplitN(value, "=", 2)
-			_, err := builder.WithLabel(parts[0], parts[1])
-			if err != nil {
-				return mb, err
+			vars := strings.Split(value, ",")
+			for _, v := range vars {
+				parts := strings.SplitN(v, "=", 2)
+				_, err := builder.WithLabel(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+				if err != nil {
+					return mb, err
+				}
 			}
 		}
 	}
