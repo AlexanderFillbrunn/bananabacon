@@ -1,19 +1,16 @@
 package main
 
 import (
-	bblogs "bananabacon/internal/logs"
-	bbmetrics "bananabacon/internal/metrics"
+	logs "bananabacon/internal/logs"
+	metrics "bananabacon/internal/metrics"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
+	"time"
 )
 
 // getenv returns the value of the environment variable with the given key.
@@ -43,73 +40,56 @@ func main() {
 	filterRegex := getenv("FILTER_REGEX", ".*")
 	timeRegex := getenv("TIME_REGEX", "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}).*")
 	timeFormat := getenv("TIME_FORMAT", "2006-01-02 15:04:05.000")
-	lr := bblogs.NewLogReplayer(file, bblogs.ReplayerOptions{
+	loop := getenv("LOOP", "true")
+
+	lr := logs.NewLogReplayer(file, logs.ReplayerOptions{
 		FilterRegex: filterRegex,
 		TimeRegex: timeRegex,
 		TimeFormat: timeFormat,
+		Loop: loop == "true",
 	})
 
 	// Wrapper function for printing to stdout
 	print := func(s string) {
         fmt.Println(s)
     }
-	var ctx context.Context
-	ctx, cancel := context.WithCancel(context.Background())
 
-	builder, err := bbmetrics.NewMetricsEngineBuilderFromEnv()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	engine := createMetricsEngine()
+	port := getPort()
+
+	server := metrics.NewMetricsServer(engine, port)
+
+
+	// Capture SIGTERM and SIGINT
+	// Cancel is called when a signal is received, we do not need it
+	ctx, _ = signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
+	
+	// Start serving metrics
+	go server.Run(ctx)
+
+	// Start replaying the log
+	go lr.Start(ctx, time.Now(), print)
+
+	<-ctx.Done()
+}
+
+func createMetricsEngine() *metrics.MetricsEngine {
+	builder, err := metrics.NewMetricsEngineBuilderFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
 	// Read metrics from env vars and expose them via http
-	engine := builder.Build()
+	return builder.Build()
+}
+
+func getPort() int {
 	portStr := getenv("METRICS_PORT", "3333")
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		log.Fatalf("Invalid metrics port: %s, err: %s", portStr, err)
 	}
-	server := createMetricsServer(engine, port)
-
-	// Capture SIGTERM and SIGINT
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT)
-
-	go func() {
-		<-signalChan // Block until a signal is received
-		cancel() // Cancel the context
-		// Stop the server
-		if err := server.Close(); err != nil {
-            log.Fatalf("HTTP close error: %v", err)
-        }
-	}()
-
-	// Start replaying the log
-	go lr.Start(ctx, print)
-
-	// Start the http server
-	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-        log.Fatalf("HTTP server error: %v", err)
-    }
-}
-
-// createMetricsServer initializes and returns an HTTP server that will listen on the provided port
-// and serves metrics at the "/metrics" endpoint. It evaluates each metric in the provided
-// MetricsEngine and writes the results to the HTTP response. If an error occurs during
-// evaluation of a metric, it is skipped.
-func createMetricsServer(engine *bbmetrics.MetricsEngine, port int) (*http.Server) {
-	server := &http.Server{
-        Addr: ":" + strconv.Itoa(port),
-    }
-	http.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var sb strings.Builder
-
-		for _, m := range engine.Metrics {
-			val, err := engine.Eval(m)
-			if err == nil {
-				sb.WriteString(val.String())
-				sb.WriteString("\n")
-			}
-		}
-		io.WriteString(w, sb.String())
-	}))
-	return server
+	return port
 }

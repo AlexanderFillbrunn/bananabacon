@@ -1,4 +1,4 @@
-package bbmetrics
+package metrics
 
 import (
 	"time"

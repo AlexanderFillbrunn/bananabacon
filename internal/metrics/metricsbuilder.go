@@ -1,10 +1,11 @@
-package bbmetrics
+package metrics
 
 import (
 	"errors"
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -34,7 +35,7 @@ func NewMetricBuilder(name string) *MetricBuilder {
 // for method chaining.
 func (m *MetricBuilder) WithType(t int) (*MetricBuilder, error) {
 	if t < 0 || t > SummaryType {
-		return m, errors.New("invalid metric type: " + string(t))
+		return m, errors.New("invalid metric type: " + strconv.Itoa(t))
 	}
 	m.Type = t
 	return m, nil

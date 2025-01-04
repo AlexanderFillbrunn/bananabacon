@@ -1,4 +1,4 @@
-package bblogs
+package logs
 
 import (
 	"bufio"
@@ -13,6 +13,7 @@ type ReplayerOptions struct {
 	FilterRegex string
 	TimeRegex string
 	TimeFormat string
+	Loop bool
 }
 
 type LogReplayer struct {
@@ -43,7 +44,9 @@ func NewLogReplayer(inputFile string, options ReplayerOptions) *LogReplayer {
 // to NewLogReplayer. It will stop when the context is cancelled or when the
 // end of the file is reached. The callback function is called on each log line
 // that matches the filter regex and has a valid timestamp.
-func (lr *LogReplayer) Start(ctx context.Context, callback func(string)) {
+// mts defines the time the first log line is mapped to.
+// This is usually time.Now, but can be different for testing.
+func (lr *LogReplayer) Start(ctx context.Context, mst time.Time, callback func(string)) {
 	frx, err := regexp.Compile(lr.options.FilterRegex)
 	if err != nil {
 		log.Fatalf("Invalid filter regex: %s, err: %s", lr.options.FilterRegex, err)
@@ -59,7 +62,14 @@ func (lr *LogReplayer) Start(ctx context.Context, callback func(string)) {
 	}
 	defer file.Close()
 
-	lr.processFile(ctx, file, frx, trx, callback)
+	start := time.Now()
+	again := true
+	for again {
+		file.Seek(0, 0)
+		lr.processFile(ctx, file, mst, frx, trx, callback)
+		again = lr.options.Loop && ctx.Err() == nil
+		mst = mst.Add(time.Since(start))
+	}
 }
 
 // processFile reads a file line by line, applies a filter regex to each line and
@@ -68,15 +78,17 @@ func (lr *LogReplayer) Start(ctx context.Context, callback func(string)) {
 // overall rate of the log replay is consistent with the timestamps in the
 // log. This means that if the log has a gap of 10 seconds between two log
 // lines, the timer will wait 10 seconds before emitting the second line.
+// mts defines the time the first log line is mapped to.
+// This is usually time.Now, but can be different for testing.
 // The method returns when the context is cancelled or when the end of the
 // file is reached.
-func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx *regexp.Regexp,
+func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, mst time.Time, frx, trx *regexp.Regexp,
 	callback func(string)) {
 	scanner := bufio.NewScanner(file)
-	var rst time.Time // real start time (now)
+	rst := time.Now() // Real start time, i.e. when we started processing the file
 	var lst time.Time // log start time (when the first line was logged)
 	var ctime time.Time // time of the first line of the current batch
-	
+
 	// Channel for synchronization, used to wait for the timer to fire
 	notify := make(chan struct{})
 	defer close(notify)
@@ -93,9 +105,10 @@ func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx 
 		}
 
 		// Find the timestamp
-		t, ok := lr.extractTimestamp(line, trx)
+		t, line, ok := lr.extractAndReplaceTimestamp(line, mst, lst, trx)
 		if !ok {
-			// If timestamp could not be extracted, use first time of current batch
+			// If timestamp could not be extracted, use first time of current batch.
+			// If current batch is empty, ignore.
 			if ctime.IsZero() {
 				continue
 			}
@@ -111,17 +124,14 @@ func (lr *LogReplayer) processFile(ctx context.Context, file *os.File, frx, trx 
 		if ctime.IsZero() {
 			ctime = t
 		}
+		if lst.IsZero() {
+			lst = ctime
+		}
 
 		// If the difference between first line in buffer and new line is 
-		if (t.Sub(ctime) > time.Duration(1) * time.Second) {
-			if lst.IsZero() {
-				// First line, no delay
-				lst, rst = ctime, time.Now()
-				lr.emitLines(buffer, callback)
-			} else {
-				timer, _ := lr.handleBufferedLines(buffer, notify, ctime, lst, rst, callback)
-				lr.wait(ctx, notify, timer)
-			}
+		if (t.Sub(ctime) > time.Duration(500) * time.Millisecond) {
+			timer, _ := lr.handleBufferedLines(buffer, notify, ctime, lst, rst, callback)
+			lr.wait(ctx, notify, timer)
 			// Reset buffer and current time
 			buffer = []string{}
 			ctime = time.Time{}
@@ -162,21 +172,33 @@ func (lr *LogReplayer) emitLines(lines []string, callback func(string)) {
 	}
 }
 
-// extractTimestamp extracts a timestamp from a log line using a given regular expression.
-// It returns the extracted timestamp as a time.Time object and a boolean indicating
-// whether the extraction was successful. If the timestamp cannot be extracted or parsed,
-// it returns a zero time and false.
-func (lr *LogReplayer) extractTimestamp(line string, trx *regexp.Regexp) (time.Time, bool) {
-	matches := trx.FindStringSubmatch(line)
-	if matches == nil || len(matches) < 2 {
-		return time.Time{}, false
+// extractAndReplaceTimestamp extracts a timestamp from a log line using a given regular expression.
+// It then replaces the extracted timestamp with a new, current, timestamp that ensures that the
+// overall rate of the log replay is consistent with the timestamps in the log.
+// It returns the extracted timestamp as a time.Time object, the modified log line,
+// and a boolean indicating whether the extraction was successful.
+// If the timestamp cannot be extracted or parsed, it returns a zero time, empty string, and false.
+func (lr *LogReplayer) extractAndReplaceTimestamp(l string, mst, lst time.Time, trx *regexp.Regexp) (time.Time, string, bool) {
+	matches := trx.FindStringSubmatchIndex(l)
+	if matches == nil || len(matches) < 4 {
+		return time.Time{}, "",false
+	}
+	tstr := l[matches[2]:matches[3]]
+
+	ts, err := time.Parse(lr.options.TimeFormat, tstr)
+	if err != nil {
+		return time.Time{}, "", false
 	}
 
-	timestamp, err := time.Parse(lr.options.TimeFormat, matches[1])
-	if err != nil {
-		return time.Time{}, false
+	var nts time.Time
+	if lst.IsZero() {
+		nts = mst
+	} else {
+		// Replace timestamp with current timestamp
+		nts = mst.Add(ts.Sub(lst))
 	}
-	return timestamp, true
+
+	return ts, (l[:matches[2]] + nts.Format(lr.options.TimeFormat) + l[matches[3]:]), true
 }
 
 // handleBufferedLines schedules a timer that will emit the given lines
