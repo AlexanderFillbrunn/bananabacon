@@ -44,3 +44,9 @@ METRIC_my_metric_TYPE = counter
 METRIC_my_metric_DESCR = Sloping up until 100, then staying there
 METRIC_my_metric_LABEL = my_app=app
 ```
+
+## TODOs
+
+- Other metric types
+- More tests
+- Metric eval function to receive the last value as argument in addition to `t`
