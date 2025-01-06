@@ -17,7 +17,7 @@ const (
 )
 
 const (
-	MetricExpressionFuncTemplate = "function %s(t) { return %s }"
+	MetricExpressionFuncTemplate = "function %s(t, prev) { return %s }"
 )
 
 type Metric struct {
@@ -26,6 +26,7 @@ type Metric struct {
 	typ int
 	labels map[string]string
 	description string
+	lastval goja.Value
 }
 
 // NewMetric constructs a new Metric instance with the specified name, type,
@@ -95,10 +96,12 @@ func (m *Metric) Eval(vm *goja.Runtime, t time.Duration) (MetricValue, error) {
 	if !ok {
 		return MetricValue{}, fmt.Errorf("metric %s is not a function", m.Name())
 	}
-	res, err := fn(goja.Undefined(), vm.ToValue(t.Milliseconds()))
+
+	res, err := fn(goja.Undefined(), vm.ToValue(t.Milliseconds()), m.lastval)
 	if err != nil {
 		return MetricValue{}, err
 	}
+	m.lastval = res
 	// TODO: parse result based on metric type (as-is only works for gauge and counter)
 	return NewMetricValue(m, res.Export()), nil;
 }

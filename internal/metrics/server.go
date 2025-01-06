@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dop251/goja"
 )
 
 type MetricsServer struct {
@@ -49,9 +51,10 @@ func createMetricsServer(engine *MetricsEngine, port int) (*http.Server) {
     }
 	http.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var sb strings.Builder
+		vm := goja.New()
 
 		for _, m := range engine.Metrics {
-			val, err := engine.Eval(m)
+			val, err := engine.Eval(m, vm)
 			if err == nil {
 				sb.WriteString(val.String())
 				sb.WriteString("\n")

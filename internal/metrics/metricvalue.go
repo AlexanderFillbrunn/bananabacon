@@ -53,8 +53,15 @@ func (mv MetricValue) String() string {
 		helpLine = fmt.Sprintf("# HELP %s %s\n", mv.Metric().Name(), mv.Metric().Description())
 	}
 	typeLine := fmt.Sprintf("# TYPE %s %s\n", mv.Metric().Name(), MetricTypeToString(mv.Metric().Type()))
-	valueLine := fmt.Sprintf("%s {%s} %v", mv.Metric().Name(), sb.String(), mv.Value())
-	return fmt.Sprintf("%s%s%s", helpLine, typeLine, valueLine)
+	var valueLines string
+	if mv.Metric().Type() == GaugeType || mv.Metric().Type() == CounterType || mv.Metric().Type() == UntypedType {
+		valueLines = fmt.Sprintf("%s {%s} %v", mv.Metric().Name(), sb.String(), mv.Value())
+	} else if mv.Metric().Type() == HistogramType {
+		valueLines = createHistogramLines(mv, sb.String())
+	} else if mv.Metric().Type() == SummaryType {
+		valueLines = createSummaryLines(mv, sb.String())
+	}
+	return fmt.Sprintf("%s%s%s", helpLine, typeLine, valueLines)
 }
 
 // MetricTypeToString takes a metric type as an integer (as returned by
@@ -73,4 +80,30 @@ func MetricTypeToString(t int) string {
 	default:
 		return "gauge"
 	}
+}
+
+func createSummaryLines(mv MetricValue, labels string) string {
+	var msb strings.Builder
+	for k, v := range mv.Value().(map[string]any) {
+		labels := fmt.Sprintf("%s,quantile=\"%s\"", labels, k)
+		msb.WriteString(fmt.Sprintf("%s {%s} %v\n", mv.Metric().Name(), labels, v))
+	}
+	return msb.String()
+}
+
+func createHistogramLines(mv MetricValue, labels string) string {
+	var msb strings.Builder
+	var suffix string
+	for k, v := range mv.Value().(map[string]any) {
+		if k == "sum" {
+			suffix = "_sum"
+		} else if k == "count" {
+			suffix = "_count"
+		} else {
+			suffix = "_bucket"
+			labels = fmt.Sprintf("%s,le=\"%s\"", labels, k)
+		}
+		msb.WriteString(fmt.Sprintf("%s%s {%s} %v\n", mv.Metric().Name(), suffix, labels, v))
+	}
+	return msb.String()
 }
