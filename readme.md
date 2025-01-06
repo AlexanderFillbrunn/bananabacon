@@ -131,7 +131,7 @@ my_metric {my_app="app", quantile="3.0"} 4
 
 ```
 docker build -t bananabacon .
-docker run -v /absolute/path/to/log:/logs/test.log -e METRIC_my_metric_EXPR='(prev || 0) + 1'  bananabacon
+docker run -v /absolute/path/to/log:/logs/test.log -e TIME_REGEX='(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}).*' -e METRIC_my_metric_EXPR='(prev || 0) + 1'  bananabacon
 ```
 
 ## TODOs
