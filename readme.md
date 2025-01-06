@@ -127,6 +127,13 @@ my_metric {my_app="app", quantile="2.0"} 2
 my_metric {my_app="app", quantile="3.0"} 4
 ```
 
+## Running with Docker
+
+```
+docker build -t bananabacon .
+docker run -v /absolute/path/to/log:/logs/test.log -e METRIC_my_metric_EXPR='(prev || 0) + 1'  bananabacon
+```
+
 ## TODOs
 
 - More tests
